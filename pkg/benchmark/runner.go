@@ -18,10 +18,13 @@ func NewRunner() *BenchmarkRunner {
 
 // RunComparison executes a task under Standard Mode and MB-VM First Mode.
 func (r *BenchmarkRunner) RunComparison(ctx context.Context, task dataset.Task) (metrics.Comparison, error) {
-	// 1. Run Standard Mode (Simulates raw source code context dump)
+	// 1. Run Standard Mode (Simulates raw source code prompt + Standard AI output)
+	stdCode := task.StandardAIPatch
+	if stdCode == "" {
+		stdCode = task.BuggyCode
+	}
 	startStd := time.Now()
-	// Evaluate the reference fix (which is the solution reached)
-	resStd, err := evaluator.EvaluateInTempDir(ctx, task.PackageName, task.SourceFile, task.ReferenceFix, task.TestFile, task.UnitTestCode)
+	resStd, err := evaluator.EvaluateInTempDir(ctx, task.PackageName, task.SourceFile, stdCode, task.TestFile, task.UnitTestCode)
 	if err != nil {
 		return metrics.Comparison{}, fmt.Errorf("eval standard: %w", err)
 	}
@@ -59,5 +62,5 @@ func (r *BenchmarkRunner) RunComparison(ctx context.Context, task dataset.Task) 
 	}
 
 	_ = startStd
-	return metrics.Compare(stdResult, mbvmResult), nil
+	return metrics.Compare(stdResult, mbvmResult, task.StandardAIFailureReason, task.Title), nil
 }

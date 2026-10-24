@@ -20,6 +20,7 @@ type RunResult struct {
 // Comparison summarizes results between Standard and MB-VM First modes.
 type Comparison struct {
 	TaskID         string  `json:"task_id"`
+	Title          string  `json:"title"`
 	StandardTokens int     `json:"standard_tokens"`
 	MBVMTokens     int     `json:"mbvm_tokens"`
 	TokenSavings   float64 `json:"token_savings_percent"`
@@ -29,6 +30,7 @@ type Comparison struct {
 	CostSavings    float64 `json:"cost_savings_percent"`
 	StandardPassed bool    `json:"standard_passed"`
 	MBVMPassed     bool    `json:"mbvm_passed"`
+	FailureReason  string  `json:"failure_reason"`
 }
 
 // ComputeCost estimates prompt cost assuming typical frontier model pricing ($3.00/1M prompt tokens).
@@ -37,7 +39,7 @@ func ComputeCost(tokens int) float64 {
 }
 
 // Compare computes the ratio and savings.
-func Compare(std, mbvm RunResult) Comparison {
+func Compare(std, mbvm RunResult, failureReason, title string) Comparison {
 	savings := 0.0
 	if std.TokensConsumed > 0 {
 		savings = (1.0 - (float64(mbvm.TokensConsumed) / float64(std.TokensConsumed))) * 100.0
@@ -55,6 +57,7 @@ func Compare(std, mbvm RunResult) Comparison {
 
 	return Comparison{
 		TaskID:         std.TaskID,
+		Title:          title,
 		StandardTokens: std.TokensConsumed,
 		MBVMTokens:     mbvm.TokensConsumed,
 		TokenSavings:   savings,
@@ -64,6 +67,7 @@ func Compare(std, mbvm RunResult) Comparison {
 		CostSavings:    costSavings,
 		StandardPassed: std.TestsPassed,
 		MBVMPassed:     mbvm.TestsPassed,
+		FailureReason:  failureReason,
 	}
 }
 

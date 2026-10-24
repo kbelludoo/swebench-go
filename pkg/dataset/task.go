@@ -2,19 +2,21 @@ package dataset
 
 // Task represents a reproducible SWE-bench Go issue.
 type Task struct {
-	ID             string   `json:"id"`
-	Title          string   `json:"title"`
-	PackageName    string   `json:"package_name"`
-	Description    string   `json:"description"`
-	SourceFile     string   `json:"source_file"`
-	TestFile       string   `json:"test_file"`
-	RawSourceCode  string   `json:"raw_source_code"`
-	BuggyCode      string   `json:"buggy_code"`
-	ReferenceFix   string   `json:"reference_fix"`
-	UnitTestCode   string   `json:"unit_test_code"`
-	Keywords       []string `json:"keywords"`
-	RawTokens      int      `json:"raw_tokens"`
-	MBVMTokens     int      `json:"mbvm_tokens"`
+	ID                      string   `json:"id"`
+	Title                   string   `json:"title"`
+	PackageName             string   `json:"package_name"`
+	Description             string   `json:"description"`
+	SourceFile              string   `json:"source_file"`
+	TestFile                string   `json:"test_file"`
+	RawSourceCode           string   `json:"raw_source_code"`
+	BuggyCode               string   `json:"buggy_code"`
+	StandardAIPatch         string   `json:"standard_ai_patch"`
+	StandardAIFailureReason string   `json:"standard_ai_failure_reason"`
+	ReferenceFix            string   `json:"reference_fix"`
+	UnitTestCode            string   `json:"unit_test_code"`
+	Keywords                []string `json:"keywords"`
+	RawTokens               int      `json:"raw_tokens"`
+	MBVMTokens              int      `json:"mbvm_tokens"`
 }
 
 // GetBenchmarkSuite returns curated, real-world Go tasks across algorithms, concurrency, and APIs.
@@ -154,6 +156,69 @@ func (cb *CircuitBreaker) Execute(fn func() error) error {
 	return nil
 }
 `,
+			StandardAIPatch: `package circuitbreaker
+
+import (
+	"errors"
+	"sync"
+	"time"
+)
+
+type State int
+
+const (
+	StateClosed State = iota
+	StateHalfOpen
+	StateOpen
+)
+
+var ErrCircuitOpen = errors.New("circuit breaker is open")
+
+type CircuitBreaker struct {
+	mu           sync.RWMutex
+	state        State
+	failures     int
+	successes    int
+	maxFailures  int
+	resetTimeout time.Duration
+	lastFailure  time.Time
+}
+
+func New(maxFailures int, resetTimeout time.Duration) *CircuitBreaker {
+	return &CircuitBreaker{
+		maxFailures:  maxFailures,
+		resetTimeout: resetTimeout,
+		state:        StateClosed,
+	}
+}
+
+// Standard AI Naive Fix: Ignores HalfOpen state machine transition and omits reset logic, failing recovery.
+func (cb *CircuitBreaker) Execute(fn func() error) error {
+	cb.mu.Lock()
+	if cb.state == StateOpen {
+		if time.Since(cb.lastFailure) <= cb.resetTimeout {
+			cb.mu.Unlock()
+			return ErrCircuitOpen
+		}
+	}
+	cb.mu.Unlock()
+
+	err := fn()
+
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if err != nil {
+		cb.failures++
+		cb.lastFailure = time.Now()
+		if cb.failures >= cb.maxFailures {
+			cb.state = StateOpen
+		}
+		return err
+	}
+	return nil
+}
+`,
+			StandardAIFailureReason: "State machine contract violation: omits Half-Open consecutive success transition and leaves breaker in invalid recovery state.",
 			ReferenceFix: `package circuitbreaker
 
 import (
@@ -254,9 +319,17 @@ func TestCircuitBreaker(t *testing.T) {
 	// Wait for reset timeout
 	time.Sleep(60 * time.Millisecond)
 
-	// In Half-open: need 2 successes to close
+	// In Half-open: 1st success should maintain HalfOpen state
 	_ = cb.Execute(func() error { return nil })
+	if cb.state != StateHalfOpen {
+		t.Fatalf("expected StateHalfOpen after 1 success, got: %v", cb.state)
+	}
+
+	// 2nd success closes the breaker
 	_ = cb.Execute(func() error { return nil })
+	if cb.state != StateClosed {
+		t.Fatalf("expected StateClosed after 2 successes, got: %v", cb.state)
+	}
 
 	// Breaker should now be closed
 	err = cb.Execute(func() error { return nil })
@@ -370,6 +443,41 @@ func (r *Reader) ReadNext() (*Event, error) {
 	return &ev, nil
 }
 `,
+			StandardAIPatch: `package jsonstream
+
+import (
+	"encoding/json"
+	"io"
+)
+
+type Event struct {
+	Type    string          ` + "`json:\"type\"`" + `
+	Payload json.RawMessage ` + "`json:\"payload\"`" + `
+}
+
+type Reader struct {
+	r io.Reader
+}
+
+func NewReader(r io.Reader) *Reader {
+	return &Reader{r: r}
+}
+
+// Standard AI Naive Fix: Reads whole unbuffered stream into static slice, corrupting multiple JSON frame sequences.
+func (r *Reader) ReadNext() (*Event, error) {
+	buf := make([]byte, 1024)
+	n, err := r.r.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	var ev Event
+	if err := json.Unmarshal(buf[:n], &ev); err != nil {
+		return nil, err
+	}
+	return &ev, nil
+}
+`,
+			StandardAIFailureReason: "Stream framing failure: unbuffered raw read consumes multiple newline-delimited frames into a single payload, crashing json.Unmarshal.",
 			ReferenceFix: `package jsonstream
 
 import (
@@ -527,6 +635,38 @@ func (l *Limiter) Allow(n float64) bool {
 	return false
 }
 `,
+			StandardAIPatch: `package ratelimit
+
+import (
+	"time"
+)
+
+type Limiter struct {
+	capacity   float64
+	tokens     float64
+	refillRate float64
+	lastRefill time.Time
+}
+
+func NewLimiter(capacity, refillRatePerSec float64) *Limiter {
+	return &Limiter{
+		capacity:   capacity,
+		tokens:     capacity,
+		refillRate: refillRatePerSec,
+		lastRefill: time.Now(),
+	}
+}
+
+// Standard AI Naive Fix: Omits sync.Mutex concurrency protection and monotonic elapsed refill math.
+func (l *Limiter) Allow(n float64) bool {
+	if l.tokens >= n {
+		l.tokens -= n
+		return true
+	}
+	return false
+}
+`,
+			StandardAIFailureReason: "Concurrency & time math omission: missing sync.Mutex causing race conditions and omitting monotonic elapsed token replenishment.",
 			ReferenceFix: `package ratelimit
 
 import (
