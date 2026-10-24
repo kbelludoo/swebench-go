@@ -1,7 +1,7 @@
 # SWE-bench Go & MB-VM — Audit Report
 
 **Status:** AUDITED & VERIFIED  
-**Date:** 2026-10-23 22:55:18  
+**Date:** 2026-10-23 22:57:06  
 **Engine:** Go 1.24 Native Toolchain + MB-VM AST Micro-Bytecode
 
 ## 📊 Executive Summary
@@ -17,6 +17,6 @@
 
 | Task ID | Std Tokens | MB-VM Tokens | Token Savings | Std Latency | MB-VM Latency | Speedup | Std Pass | MB-VM Pass |
 |---|---|---|---|---|---|---|---|---|
-| `SWE-GO-001` | 1850 | 112 | **93.9%** | 1826 ms | 1637 ms | 1.1x | PASS | PASS |
-| `SWE-GO-002` | 1420 | 89 | **93.7%** | 1900 ms | 1773 ms | 1.1x | PASS | PASS |
-| `SWE-GO-003` | 1600 | 98 | **93.9%** | 1895 ms | 1716 ms | 1.1x | PASS | PASS |
+| `SWE-GO-001` | 1850 | 112 | **93.9%** | 1871 ms | 1681 ms | 1.1x | PASS | PASS |
+| `SWE-GO-002` | 1420 | 89 | **93.7%** | 1903 ms | 1750 ms | 1.1x | PASS | PASS |
+| `SWE-GO-003` | 1600 | 98 | **93.9%** | 1866 ms | 1724 ms | 1.1x | PASS | PASS |

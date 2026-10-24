@@ -27,7 +27,7 @@ func EvaluateInTempDir(ctx context.Context, pkgName, srcFilename, srcContent, te
 	defer os.RemoveAll(tempDir)
 
 	// Write go.mod
-	goMod := fmt.Sprintf("module %s\n\ngo 1.24\n", pkgName)
+	goMod := fmt.Sprintf("module %s\n\ngo 1.27\n", pkgName)
 	if err := os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte(goMod), 0644); err != nil {
 		return nil, fmt.Errorf("write go.mod: %w", err)
 	}
