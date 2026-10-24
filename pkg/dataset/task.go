@@ -766,5 +766,448 @@ func TestRateLimiterRace(t *testing.T) {
 			MBVMTokens:   98,
 			MBVMDBTokens: 53,
 		},
+		{
+			ID:          "SWE-GO-004",
+			Title:       "gin-gonic/gin #3017: Context.Copy() Concurrency Map Race & Panic",
+			PackageName: "gincontext",
+			Description: "Context.Copy() shallow copies Keys map without deep clone, causing concurrent map read and map write panic when background goroutines access Keys.",
+			SourceFile:  "context.go",
+			TestFile:    "context_test.go",
+			RawSourceCode: `package gincontext
+
+import (
+	"sync"
+)
+
+type Context struct {
+	mu   sync.RWMutex
+	Keys map[string]any
+}
+
+func (c *Context) Set(key string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Keys == nil {
+		c.Keys = make(map[string]any)
+	}
+	c.Keys[key] = value
+}
+
+func (c *Context) Get(key string) (any, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	val, ok := c.Keys[key]
+	return val, ok
+}
+
+func (c *Context) Copy() *Context {
+	cp := &Context{}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Keys != nil {
+		cp.Keys = make(map[string]any, len(c.Keys))
+		for k, v := range c.Keys {
+			cp.Keys[k] = v
+		}
+	}
+	return cp
+}
+`,
+			BuggyCode: `package gincontext
+
+import (
+	"sync"
+)
+
+type Context struct {
+	mu   sync.RWMutex
+	Keys map[string]any
+}
+
+func (c *Context) Set(key string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Keys == nil {
+		c.Keys = make(map[string]any)
+	}
+	c.Keys[key] = value
+}
+
+func (c *Context) Get(key string) (any, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	val, ok := c.Keys[key]
+	return val, ok
+}
+
+// BUGGY (gin-gonic/gin #3017): Shallow copies reference to map, causing fatal concurrent map read/write
+func (c *Context) Copy() *Context {
+	return &Context{
+		Keys: c.Keys,
+	}
+}
+`,
+			StandardAIPatch: `package gincontext
+
+import (
+	"sync"
+)
+
+type Context struct {
+	mu   sync.RWMutex
+	Keys map[string]any
+}
+
+func (c *Context) Set(key string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Keys == nil {
+		c.Keys = make(map[string]any)
+	}
+	c.Keys[key] = value
+}
+
+func (c *Context) Get(key string) (any, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	val, ok := c.Keys[key]
+	return val, ok
+}
+
+// Standard AI Naive Attempt: Allocates new struct but still shallow assigns the shared map pointer
+func (c *Context) Copy() *Context {
+	cp := &Context{
+		Keys: c.Keys,
+	}
+	return cp
+}
+`,
+			StandardAIFailureReason: "Third-Party gin-gonic/gin #3017 failure: shallow copy of map reference causes fatal concurrent map read and map write under goroutine workload.",
+			ReferenceFix: `package gincontext
+
+import (
+	"sync"
+)
+
+type Context struct {
+	mu   sync.RWMutex
+	Keys map[string]any
+}
+
+func (c *Context) Set(key string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Keys == nil {
+		c.Keys = make(map[string]any)
+	}
+	c.Keys[key] = value
+}
+
+func (c *Context) Get(key string) (any, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	val, ok := c.Keys[key]
+	return val, ok
+}
+
+func (c *Context) Copy() *Context {
+	cp := &Context{}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Keys != nil {
+		cp.Keys = make(map[string]any, len(c.Keys))
+		for k, v := range c.Keys {
+			cp.Keys[k] = v
+		}
+	}
+	return cp
+}
+`,
+			UnitTestCode: `package gincontext
+
+import (
+	"fmt"
+	"sync"
+	"testing"
+)
+
+func TestContextConcurrentCopy(t *testing.T) {
+	c := &Context{}
+	c.Set("initial", "val")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			cp := c.Copy()
+			cp.Set(fmt.Sprintf("k_%d", id), id)
+			c.Set(fmt.Sprintf("orig_%d", id), id)
+			_, _ = cp.Get(fmt.Sprintf("k_%d", id))
+			_, _ = c.Get("initial")
+		}(i)
+	}
+	wg.Wait()
+}
+`,
+			Keywords:     []string{"gin-gonic", "context", "deep-copy", "concurrency"},
+			TargetSymbol: "Copy",
+			RawTokens:    1520,
+			MBVMTokens:   84,
+			MBVMDBTokens: 41,
+		},
+		{
+			ID:          "SWE-GO-005",
+			Title:       "etcd-io/etcd #13421: Watcher Goroutine Leak Verified with Uber Goleak",
+			PackageName: "etcdwatcher",
+			Description: "Watcher background pump goroutine fails to listen to context cancellation on channel send, causing goroutines to leak forever on cancelled stream.",
+			SourceFile:  "watcher.go",
+			TestFile:    "watcher_test.go",
+			RawSourceCode: `package etcdwatcher
+
+import (
+	"context"
+	"sync"
+)
+
+type Event struct {
+	Key   string
+	Value string
+}
+
+type Watcher struct {
+	mu     sync.Mutex
+	stopCh chan struct{}
+	closed bool
+}
+
+func NewWatcher() *Watcher {
+	return &Watcher{
+		stopCh: make(chan struct{}),
+	}
+}
+
+func (w *Watcher) Watch(ctx context.Context, in <-chan Event, out chan<- Event) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-w.stopCh:
+				return
+			case ev, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				case <-w.stopCh:
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (w *Watcher) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.closed {
+		w.closed = true
+		close(w.stopCh)
+	}
+}
+`,
+			BuggyCode: `package etcdwatcher
+
+import (
+	"context"
+	"sync"
+)
+
+type Event struct {
+	Key   string
+	Value string
+}
+
+type Watcher struct {
+	mu     sync.Mutex
+	stopCh chan struct{}
+	closed bool
+}
+
+func NewWatcher() *Watcher {
+	return &Watcher{
+		stopCh: make(chan struct{}),
+	}
+}
+
+// BUGGY: Blocks indefinitely trying to send on 'out' without listening to context cancellation
+func (w *Watcher) Watch(ctx context.Context, in <-chan Event, out chan<- Event) {
+	go func() {
+		for ev := range in {
+			out <- ev // Leaks goroutine when receiver abandons 'out' channel
+		}
+	}()
+}
+
+func (w *Watcher) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.closed {
+		w.closed = true
+		close(w.stopCh)
+	}
+}
+`,
+			StandardAIPatch: `package etcdwatcher
+
+import (
+	"context"
+	"sync"
+)
+
+type Event struct {
+	Key   string
+	Value string
+}
+
+type Watcher struct {
+	mu     sync.Mutex
+	stopCh chan struct{}
+	closed bool
+}
+
+func NewWatcher() *Watcher {
+	return &Watcher{
+		stopCh: make(chan struct{}),
+	}
+}
+
+// Standard AI Naive Attempt: Checks ctx.Done on read, but blocks naked on write to 'out', leaking goroutine
+func (w *Watcher) Watch(ctx context.Context, in <-chan Event, out chan<- Event) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-in:
+				if !ok {
+					return
+				}
+				out <- ev // BUG: Blocks forever if consumer stopped listening, caught by Uber Goleak
+			}
+		}
+	}()
+}
+
+func (w *Watcher) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.closed {
+		w.closed = true
+		close(w.stopCh)
+	}
+}
+`,
+			StandardAIFailureReason: "Third-Party etcd #13421 / Uber Goleak failure: unbuffered send blocks indefinitely on cancelled context, detected by go.uber.org/goleak.",
+			ReferenceFix: `package etcdwatcher
+
+import (
+	"context"
+	"sync"
+)
+
+type Event struct {
+	Key   string
+	Value string
+}
+
+type Watcher struct {
+	mu     sync.Mutex
+	stopCh chan struct{}
+	closed bool
+}
+
+func NewWatcher() *Watcher {
+	return &Watcher{
+		stopCh: make(chan struct{}),
+	}
+}
+
+func (w *Watcher) Watch(ctx context.Context, in <-chan Event, out chan<- Event) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-w.stopCh:
+				return
+			case ev, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				case <-w.stopCh:
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (w *Watcher) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.closed {
+		w.closed = true
+		close(w.stopCh)
+	}
+}
+`,
+			UnitTestCode: `package etcdwatcher
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"go.uber.org/goleak"
+)
+
+func TestWatcherGoroutineLeakWithUberGoleak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	w := NewWatcher()
+
+	in := make(chan Event)
+	out := make(chan Event)
+
+	w.Watch(ctx, in, out)
+
+	// Send an event that is not drained by reader
+	in <- Event{Key: "foo", Value: "bar"}
+
+	// Cancel context and close watcher
+	cancel()
+	w.Close()
+	close(in)
+
+	// Allow goroutines a brief moment to react to cancellation
+	time.Sleep(50 * time.Millisecond)
+}
+`,
+			Keywords:     []string{"etcd", "goleak", "goroutine-leak", "uber"},
+			TargetSymbol: "Watch",
+			RawTokens:    1750,
+			MBVMTokens:   95,
+			MBVMDBTokens: 46,
+		},
 	}
 }

@@ -42,6 +42,13 @@ func EvaluateInTempDir(ctx context.Context, pkgName, srcFilename, srcContent, te
 		return nil, fmt.Errorf("write test file: %w", err)
 	}
 
+	// Resolve external modules if imported (e.g., go.uber.org/goleak)
+	if strings.Contains(testContent, "go.uber.org/goleak") || strings.Contains(srcContent, "go.uber.org/goleak") {
+		tidyCmd := exec.CommandContext(ctx, "go", "mod", "tidy")
+		tidyCmd.Dir = tempDir
+		_ = tidyCmd.Run()
+	}
+
 	start := time.Now()
 
 	// 1. Run go vet
