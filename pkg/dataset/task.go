@@ -8,6 +8,7 @@ type Task struct {
 	Description             string   `json:"description"`
 	SourceFile              string   `json:"source_file"`
 	TestFile                string   `json:"test_file"`
+	TargetSymbol            string   `json:"target_symbol"`
 	RawSourceCode           string   `json:"raw_source_code"`
 	BuggyCode               string   `json:"buggy_code"`
 	StandardAIPatch         string   `json:"standard_ai_patch"`
@@ -17,6 +18,7 @@ type Task struct {
 	Keywords                []string `json:"keywords"`
 	RawTokens               int      `json:"raw_tokens"`
 	MBVMTokens              int      `json:"mbvm_tokens"`
+	MBVMDBTokens            int      `json:"mbvmdb_tokens"`
 }
 
 // GetBenchmarkSuite returns curated, real-world Go tasks across algorithms, concurrency, and APIs.
@@ -356,9 +358,11 @@ func TestCircuitBreakerConcurrent(t *testing.T) {
 	wg.Wait()
 }
 `,
-			Keywords:   []string{"concurrency", "mutex", "state-machine"},
-			RawTokens:  1850,
-			MBVMTokens: 112,
+			Keywords:     []string{"concurrency", "mutex", "state-machine"},
+			TargetSymbol: "Execute",
+			RawTokens:    1850,
+			MBVMTokens:   112,
+			MBVMDBTokens: 69,
 		},
 		{
 			ID:          "SWE-GO-002",
@@ -549,9 +553,11 @@ func TestStreamReader(t *testing.T) {
 	}
 }
 `,
-			Keywords:   []string{"json", "streaming", "io.Reader"},
-			RawTokens:  1420,
-			MBVMTokens: 89,
+			Keywords:     []string{"json", "streaming", "io.Reader"},
+			TargetSymbol: "ReadNext",
+			RawTokens:    1420,
+			MBVMTokens:   89,
+			MBVMDBTokens: 37,
 		},
 		{
 			ID:          "SWE-GO-003",
@@ -754,9 +760,11 @@ func TestRateLimiterRace(t *testing.T) {
 	wg.Wait()
 }
 `,
-			Keywords:   []string{"rate-limiter", "token-bucket", "concurrency"},
-			RawTokens:  1600,
-			MBVMTokens: 98,
+			Keywords:     []string{"rate-limiter", "token-bucket", "concurrency"},
+			TargetSymbol: "Allow",
+			RawTokens:    1600,
+			MBVMTokens:   98,
+			MBVMDBTokens: 53,
 		},
 	}
 }

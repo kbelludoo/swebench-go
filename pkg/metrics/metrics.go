@@ -17,21 +17,26 @@ type RunResult struct {
 	CostUSD        float64       `json:"cost_usd"`
 }
 
-// Comparison summarizes results between Standard and MB-VM First modes.
+// Comparison summarizes results between Standard, MB-VM Pure, and MBVM-DB Sliced modes.
 type Comparison struct {
 	TaskID               string  `json:"task_id"`
 	Title                string  `json:"title"`
 	StandardTokens       int     `json:"standard_tokens"`
 	MBVMTokens           int     `json:"mbvm_tokens"`
+	MBVMDBTokens         int     `json:"mbvmdb_tokens"`
 	TokenSavings         float64 `json:"token_savings_percent"`
+	MBVMDBSavings        float64 `json:"mbvmdb_savings_percent"`
 	StandardTimeMs       int64   `json:"standard_time_ms"`
 	MBVMTimeMs           int64   `json:"mbvm_time_ms"`
+	MBVMDBTimeMs         int64   `json:"mbvmdb_time_ms"`
 	SpeedupFactor        float64 `json:"speedup_factor"`
 	CostSavings          float64 `json:"cost_savings_percent"`
 	StandardPassed       bool    `json:"standard_passed"`
 	MBVMPassed           bool    `json:"mbvm_passed"`
+	MBVMDBPassed         bool    `json:"mbvmdb_passed"`
 	StandardRaceDetected bool    `json:"standard_race_detected"`
 	MBVMRaceDetected     bool    `json:"mbvm_race_detected"`
+	MBVMDBRaceDetected   bool    `json:"mbvmdb_race_detected"`
 	FailureReason        string  `json:"failure_reason"`
 }
 
@@ -118,21 +123,26 @@ func ComputeCost(tokens int) float64 {
 	return (float64(tokens) / 1000000.0) * 3.00
 }
 
-// Compare computes the ratio and savings.
-func Compare(std, mbvm RunResult, failureReason, title string) Comparison {
+// Compare computes the ratio and savings across Standard, MB-VM, and MBVM-DB.
+func Compare(std, mbvm, mbvmdb RunResult, failureReason, title string) Comparison {
 	savings := 0.0
 	if std.TokensConsumed > 0 {
 		savings = (1.0 - (float64(mbvm.TokensConsumed) / float64(std.TokensConsumed))) * 100.0
 	}
 
+	dbSavings := 0.0
+	if std.TokensConsumed > 0 {
+		dbSavings = (1.0 - (float64(mbvmdb.TokensConsumed) / float64(std.TokensConsumed))) * 100.0
+	}
+
 	speedup := 1.0
-	if mbvm.Duration.Milliseconds() > 0 {
-		speedup = float64(std.Duration.Milliseconds()) / float64(mbvm.Duration.Milliseconds())
+	if mbvmdb.Duration.Milliseconds() > 0 {
+		speedup = float64(std.Duration.Milliseconds()) / float64(mbvmdb.Duration.Milliseconds())
 	}
 
 	costSavings := 0.0
 	if std.CostUSD > 0 {
-		costSavings = (1.0 - (mbvm.CostUSD / std.CostUSD)) * 100.0
+		costSavings = (1.0 - (mbvmdb.CostUSD / std.CostUSD)) * 100.0
 	}
 
 	return Comparison{
@@ -140,15 +150,20 @@ func Compare(std, mbvm RunResult, failureReason, title string) Comparison {
 		Title:                title,
 		StandardTokens:       std.TokensConsumed,
 		MBVMTokens:           mbvm.TokensConsumed,
+		MBVMDBTokens:         mbvmdb.TokensConsumed,
 		TokenSavings:         savings,
+		MBVMDBSavings:        dbSavings,
 		StandardTimeMs:       std.Duration.Milliseconds(),
 		MBVMTimeMs:           mbvm.Duration.Milliseconds(),
+		MBVMDBTimeMs:         mbvmdb.Duration.Milliseconds(),
 		SpeedupFactor:        speedup,
 		CostSavings:          costSavings,
 		StandardPassed:       std.TestsPassed,
 		MBVMPassed:           mbvm.TestsPassed,
+		MBVMDBPassed:         mbvmdb.TestsPassed,
 		StandardRaceDetected: std.RaceDetected,
 		MBVMRaceDetected:     mbvm.RaceDetected,
+		MBVMDBRaceDetected:   mbvmdb.RaceDetected,
 		FailureReason:        failureReason,
 	}
 }
@@ -163,16 +178,20 @@ func (c Comparison) FormatTable() string {
 	if !c.MBVMPassed {
 		passMBVM = "FAIL"
 	}
+	passDB := "PASS"
+	if !c.MBVMDBPassed {
+		passDB = "FAIL"
+	}
 
-	return fmt.Sprintf("| %-10s | %8d tok | %8d tok | %6.1f%% | %6d ms | %6d ms | %5.1fx | %4s | %4s |",
+	return fmt.Sprintf("| %-10s | %8d tok | %8d tok | %8d tok | %6.1f%% | %5.1fx | %4s | %4s | %4s |",
 		c.TaskID,
 		c.StandardTokens,
 		c.MBVMTokens,
-		c.TokenSavings,
-		c.StandardTimeMs,
-		c.MBVMTimeMs,
+		c.MBVMDBTokens,
+		c.MBVMDBSavings,
 		c.SpeedupFactor,
 		passStd,
 		passMBVM,
+		passDB,
 	)
 }
