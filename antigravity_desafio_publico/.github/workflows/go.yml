@@ -1,0 +1,14 @@
+name: Go priority verification
+on: [push, workflow_dispatch]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - run: go get go.uber.org/goleak@v1.3.0
+      - run: go vet ./...
+      - run: go test -race -count=10 -timeout=5m ./...
+      - run: go test -race -tags=goleak -count=3 -timeout=5m ./...
